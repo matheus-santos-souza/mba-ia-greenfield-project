@@ -1,0 +1,23 @@
+[agents]
+max_threads = 6
+max_depth = 1
+
+# Run: codex mcp login context7
+[mcp_servers.context7]
+url = "https://mcp.context7.com/mcp/oauth"
+auth = "oauth"
+required = false
+
+[mcp_servers.postgres]
+command = "npx"
+args = [
+  "-y",
+  "@modelcontextprotocol/server-postgres",
+  "postgresql://streamtube:streamtube@localhost/streamtube",
+]
+required = false
+
+# Requires the Figma desktop MCP server to be running locally.
+[mcp_servers.figma]
+url = "http://127.0.0.1:3845/mcp"
+required = false
