@@ -16,8 +16,3 @@ args = [
   "postgresql://streamtube:streamtube@localhost/streamtube",
 ]
 required = false
-
-# Requires the Figma desktop MCP server to be running locally.
-[mcp_servers.figma]
-url = "http://127.0.0.1:3845/mcp"
-required = false
