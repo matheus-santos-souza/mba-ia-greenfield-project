@@ -217,7 +217,7 @@ Entregar no backend o armazenamento S3-compatible, upload multipart retomável d
 **Description:** Conectar o lifecycle multipart ao HTTP autenticado com DTOs estritos, controllers finos e documentação OpenAPI explícita.
 
 **Route:** POST `/videos/uploads`; GET `/videos/:videoId/uploads/:uploadId`; POST `/videos/:videoId/uploads/:uploadId/parts`; POST `/videos/:videoId/uploads/:uploadId/complete`; DELETE `/videos/:videoId/uploads/:uploadId`
-**Test Specs:** _pending /plan-test-specs_
+**Test Specs:** see `nestjs-project/specs/videos-uploads.plan.md`
 **Authorization:** somente o dono do canal/vídeo, conforme `### Authorization Matrix`
 
 **Technical actions:**
@@ -320,7 +320,7 @@ Os cenários HTTP/DTO/authorization são externalizados pelo campo `Test Specs`;
 **Description:** Publicar os contratos HTTP owner-only que redirecionam o cliente ao object storage e documentam explicitamente Range/206 e download.
 
 **Route:** GET `/videos/:publicId/stream`; GET `/videos/:publicId/download`
-**Test Specs:** _pending /plan-test-specs_
+**Test Specs:** see `nestjs-project/specs/videos-stream.plan.md`
 **Authorization:** somente owner nesta fase; policy preparada para publicação anônima na Fase 04
 
 **Technical actions:**
