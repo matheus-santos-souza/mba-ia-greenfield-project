@@ -1,7 +1,7 @@
 ---
 scope_type: phase
 related_phases: [3]
-status: pending
+status: decided
 date: 2026-07-20
 scope_description: "Backend inicial da Fase 03: upload resumable de vídeos de até 10GB, armazenamento S3-compatible, processamento assíncrono, artefatos de reprodução, entrega por streaming/download e identificadores públicos únicos."
 ---
@@ -52,7 +52,8 @@ NestJS receives each application-defined chunk and assembles or forwards it to s
 
 **Recommendation:** **Option A (S3 Multipart Upload with API-presigned parts)** — it reuses the object store's native resume/parallelism primitives, keeps media bytes outside NestJS, and avoids introducing a separate tus service while the API retains control of identity, authorization, keys, and completion.
 
-**Decision:** _[pending]_
+**Decision:** A
+**Libraries:** `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`
 
 ---
 
@@ -89,7 +90,8 @@ Objects are grouped by channel and retain normalized uploader filenames, for exa
 
 **Recommendation:** **Option A (one private media bucket with deterministic namespaced keys, accessed through AWS SDK v3)** — it honors the fixed MinIO/S3-compatible architecture, keeps object naming independent of user input, and gives multipart, processing retries, lifecycle cleanup, streaming, and future reprocessing stable keys without multiplying infrastructure configuration.
 
-**Decision:** _[pending]_
+**Decision:** A
+**Libraries:** `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`
 
 ---
 
@@ -126,7 +128,8 @@ The API publishes persistent messages with confirms and the worker manually ackn
 
 **Recommendation:** **Option A (BullMQ 5 + Redis through `@nestjs/bullmq`)** — the architecture already calls for a dedicated queue, and BullMQ offers the best NestJS 11 fit plus the progress, retry, concurrency, and worker-isolation primitives needed by FFmpeg without introducing AMQP-level plumbing.
 
-**Decision:** _[pending]_
+**Decision:** A
+**Libraries:** `@nestjs/bullmq`, `bullmq`
 
 ---
 
@@ -163,7 +166,7 @@ A minimal Node.js process consumes BullMQ directly and invokes FFmpeg using shar
 
 **Recommendation:** **Option A (separate Docker service with a standalone NestJS application context and an isolated FFmpeg adapter)** — it satisfies the explicit worker/container requirement, protects API responsiveness, supports independent concurrency and restarts, and reuses current NestJS 11 conventions without turning the HTTP application into the worker runtime.
 
-**Decision:** _[pending]_
+**Decision:** A
 
 ---
 
@@ -200,7 +203,7 @@ A workflow service such as Temporal owns the multi-step process, retries, timers
 
 **Recommendation:** **Option B (transactional outbox + at-least-once idempotent worker)** — it closes the only loss window between upload completion and queue publication while accepting BullMQ's real delivery semantics and keeping retries safe through persisted state and deterministic outputs.
 
-**Decision:** _[pending]_
+**Decision:** B
 
 ---
 
@@ -237,7 +240,7 @@ PostgreSQL stores only the draft and final metadata; clients obtain upload and p
 
 **Recommendation:** **Option A (Video with `DRAFT → PROCESSING → READY | ERROR` plus a separate Upload Session)** — it implements the required database lifecycle, lets the draft receive a stable identity before bytes arrive, preserves all multipart resume data, and leaves Phase 04 visibility independent.
 
-**Decision:** _[pending]_
+**Decision:** A
 
 ---
 
@@ -274,7 +277,7 @@ The worker transcodes an adaptive bitrate ladder and emits a master playlist plu
 
 **Recommendation:** **Option B (ffprobe metadata + deterministic thumbnail + one H.264/AAC progressive MP4 with `+faststart`, retaining the source)** — it produces a broadly playable streaming artifact and the required metadata/thumbnail with one bounded pipeline, while deferring HLS rendition complexity.
 
-**Decision:** _[pending]_
+**Decision:** B
 
 ---
 
@@ -311,7 +314,8 @@ A CDN serves cached media and validates signed URLs or cookies; the API issues a
 
 **Recommendation:** **Option A (private bucket + short-lived presigned GET URLs)** — it preserves API authorization without placing video bytes on the NestJS path and remains a clean origin contract that a CDN can front later without changing object ownership or processing outputs.
 
-**Decision:** _[pending]_
+**Decision:** A
+**Libraries:** `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`
 
 ---
 
@@ -348,7 +352,8 @@ The public ID combines a normalized title slug with a short random suffix and re
 
 **Recommendation:** **Option B (internal UUID + immutable 21-character NanoID public ID)** — it preserves the repository's UUID relational convention while providing the dedicated URL identifier required by the phase; a unique index and retry turn probabilistic generation into a collision-safe database contract.
 
-**Decision:** _[pending]_
+**Decision:** B
+**Libraries:** `nanoid`
 
 ---
 
@@ -356,15 +361,15 @@ The public ID combines a normalized title slug with a short random suffix and re
 
 | ID | Scope | Decision | Recommendation | Choice |
 |----|-------|----------|----------------|--------|
-| TD-01 | Backend | Resumable upload API and storage contract | S3 Multipart Upload with API-presigned parts | _[pending]_ |
-| TD-02 | Backend | S3-compatible bucket and object-key organization | One private media bucket with deterministic namespaced keys via AWS SDK v3 | _[pending]_ |
-| TD-03 | Backend | Background queue platform | BullMQ 5 + Redis via `@nestjs/bullmq` | _[pending]_ |
-| TD-04 | Backend | Video worker execution and FFmpeg boundary | Separate Docker service with a standalone NestJS application context | _[pending]_ |
-| TD-05 | Backend | Processing delivery, retry, and idempotency | Transactional outbox + at-least-once idempotent worker | _[pending]_ |
-| TD-06 | Backend | Draft/upload/video status lifecycle | Video `DRAFT → PROCESSING → READY \| ERROR` + separate Upload Session | _[pending]_ |
-| TD-07 | Backend | FFmpeg processing, thumbnail, and canonical playback artifact | ffprobe metadata + thumbnail + H.264/AAC progressive MP4 with `+faststart` | _[pending]_ |
-| TD-08 | Backend | Streaming and download access | Private bucket + short-lived presigned GET URLs with Range/206 | _[pending]_ |
-| TD-09 | Backend | Public video URL identifier contract | Internal UUID + immutable 21-character NanoID | _[pending]_ |
+| TD-01 | Backend | Resumable upload API and storage contract | S3 Multipart Upload with API-presigned parts | A |
+| TD-02 | Backend | S3-compatible bucket and object-key organization | One private media bucket with deterministic namespaced keys via AWS SDK v3 | A |
+| TD-03 | Backend | Background queue platform | BullMQ 5 + Redis via `@nestjs/bullmq` | A |
+| TD-04 | Backend | Video worker execution and FFmpeg boundary | Separate Docker service with a standalone NestJS application context | A |
+| TD-05 | Backend | Processing delivery, retry, and idempotency | Transactional outbox + at-least-once idempotent worker | B |
+| TD-06 | Backend | Draft/upload/video status lifecycle | Video `DRAFT → PROCESSING → READY \| ERROR` + separate Upload Session | A |
+| TD-07 | Backend | FFmpeg processing, thumbnail, and canonical playback artifact | ffprobe metadata + thumbnail + H.264/AAC progressive MP4 with `+faststart` | B |
+| TD-08 | Backend | Streaming and download access | Private bucket + short-lived presigned GET URLs with Range/206 | A |
+| TD-09 | Backend | Public video URL identifier contract | Internal UUID + immutable 21-character NanoID | B |
 
 ---
 
