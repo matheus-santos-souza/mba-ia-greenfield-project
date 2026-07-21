@@ -193,7 +193,7 @@ Never guess, never auto-recover, never partially proceed. The pipeline is determ
 
 ## Shared convention — Subagent delegation
 
-Heavy reads (project-plan, globbing all decisions docs, scanning prior phases) are delegated to subagents in `.claude/agents/`:
+Heavy reads (project-plan, globbing all decisions docs, scanning prior phases) are delegated to the project-scoped custom Codex agents in `.codex/agents/*.toml`. The TOML `name` field is the agent identity used for spawning; the filename SHOULD match that name. Never load or dispatch `.claude/agents/*.md` as a fallback.
 
 - `decisions-reader` — globs and filters decisions docs; returns a structured TD index.
   - Phase mode: filter by `NN ∈ related_phases`.
@@ -213,7 +213,9 @@ Heavy reads (project-plan, globbing all decisions docs, scanning prior phases) a
   - Dispatched **conditionally** — only when the inventory file exists. Absence is handled by the caller via fallback placeholder (not an error).
   - Task mode additionally consumes inventories from ALL UI-bearing slices of the latest completed phase (aggregated + deduped by component name) and emits `### Inherited UI Components` for cross-phase DS reuse.
 
-Dispatch them **in parallel** via the `Agent` tool with `subagent_type: <name>`. Each subagent returns a compact structured response (table or YAML-like) — the main thread consolidates without loading the raw source files.
+Dispatch them **in parallel** through the Codex subagent workflow, selecting each custom agent by its TOML `name` (for example, `plan-reader` resolves to `.codex/agents/plan-reader.toml`). Stage-local notation such as `subagent_type: <name>` is a semantic agent-name label retained for compactness; in Codex it MUST resolve to the matching project custom agent, not to a generic agent and not to a Claude agent definition. Pass only the stage inputs documented by that custom agent; Codex loads its `developer_instructions` from the TOML configuration. Each subagent returns a compact structured response (table or YAML-like) — the main thread consolidates without loading the raw source files.
+
+If the current Codex surface cannot select a requested project custom agent by name, abort the stage and report that agent dispatch is unavailable. Do not silently substitute a generic subagent, inline the TOML instructions into a generic prompt, or read `.claude/agents/`.
 
 **Subagent default mode=phase (Decisão #25).** `phases-reader`, `decisions-reader`, `decisions-detail-reader`, `inventory-digest-reader` treat the absence of `mode` as `mode=phase`. Callers that never pass `mode` (legacy pre-rename dispatches, or any caller exercising phase behavior) continue to work unchanged. Task mode requires the caller to pass `mode=task` explicitly.
 
