@@ -12,6 +12,7 @@ import swaggerMetadata from './metadata.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.enableShutdownHooks();
   const configService = app.get(ConfigService);
   const port = configService.get<number>('app.port') ?? 3000;
 
