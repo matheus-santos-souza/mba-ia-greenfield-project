@@ -10,13 +10,14 @@ description: 'TypeORM entity conventions for database models'
 
 - Always pass an explicit table name to `@Entity('table_name')` — do not rely on auto-generated names
 - Use UUID as primary key: `@PrimaryGeneratedColumn('uuid')`
-- Always include timestamp columns: `@CreateDateColumn()` and `@UpdateDateColumn()`
+- Mutable aggregate entities include both `@CreateDateColumn()` and `@UpdateDateColumn()`. Append-only/event records such as the processing outbox may omit `@UpdateDateColumn()` when their explicit lifecycle timestamps (`available_at`, `published_at`) are the real state contract.
 
 ## Column Conventions
 
 - Sensitive fields (passwords, tokens) must use `{ select: false }` to exclude from default queries
-- Use `{ unique: true }` for naturally unique fields (email, slug)
+- Give uniqueness and lookup indexes explicit stable names with `@Index`/`@Unique` when migrations and operational queries depend on them. Inline `{ unique: true }` is acceptable only when the generated constraint name is irrelevant.
 - Define explicit column types when the default mapping is ambiguous
+- Persist external identifiers, byte counts, TTL timestamps, status enums, JSON metadata, and nullable artifact keys with types that preserve their real range and nullability (`bigint` for declared video size, `timestamptz` for expiry/publication, `jsonb` for processing payload/metadata).
 
 ## Relationships
 
@@ -29,4 +30,4 @@ description: 'TypeORM entity conventions for database models'
 
 - Never modify an entity without creating a corresponding migration
 - Never use `synchronize: true` in production — only in early development if at all
-- Generate migrations via TypeORM CLI, not by hand
+- Generate migrations via TypeORM CLI, review the SQL, and keep `synchronize: false` in application runtime configuration.

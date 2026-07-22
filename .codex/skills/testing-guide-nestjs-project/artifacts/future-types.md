@@ -1,0 +1,85 @@
+> Part of the `testing-guide-nestjs-project` skill (see `../SKILL.md`).
+
+# Future Types
+
+Proactive guidance for artifact types not yet present. Authentication, email, S3 storage, BullMQ queue processing, cleanup loops, and the FFmpeg worker are implemented; use their dedicated artifact guides instead of treating them as future types.
+
+---
+
+## Custom Decorators (`*.decorator.ts`)
+
+Custom decorators in NestJS are typically parameter decorators (e.g., `@CurrentUser()`) or composition decorators (combining multiple decorators into one).
+
+**What to test:**
+- Parameter decorators that extract data from the request context
+- Composition decorators that combine multiple decorators
+
+**Layer assignment:**
+- **Parameter decorators** (e.g., `@CurrentUser()`): **E2E only** — test that the extracted value is correctly passed to the handler by testing the endpoint response
+- **Composition decorators** (e.g., `@Public()` combining `@SetMetadata()` + others): **Skip** — these are declarative wrappers; test the behavior they enable via E2E
+
+**When to skip:** Most custom decorators are thin wrappers around `createParamDecorator()` or `applyDecorators()` — they have no testable logic.
+
+---
+
+## Event Listeners / Handlers
+
+If the project adopts NestJS's `@nestjs/event-emitter` for internal events (e.g., "user registered" triggers channel creation):
+
+**What to test:**
+- Event handler correctly processes the event data
+- Side effects (DB writes, emails, queue publishing) occur as expected
+
+**Layer assignment:**
+- **Handlers with business logic**: Unit (mock dependencies) + Integration (real DB/external systems)
+- **Handlers with only side effects**: Integration (real systems)
+
+**Setup pattern:**
+```typescript
+// Test the handler directly by calling its method, not by emitting the event
+// Event emission is framework behavior; the handler's logic is your code
+describe('UserRegisteredHandler', () => {
+  it('should create a channel for the new user', async () => {
+    await handler.handleUserRegistered({ userId: 'u1', email: 'test@x.com' });
+    // Assert channel was created in the database
+  });
+});
+```
+
+---
+
+## Scheduled Tasks (Cron)
+
+If the project adds `@nestjs/schedule` for periodic tasks:
+
+**What to test:**
+- The scheduled method's logic executes correctly
+- Side effects (cleanup, reports, notifications) work as expected
+
+**Layer assignment:**
+- Test the method directly as a regular service method (Unit and/or Integration)
+- Do NOT test that the cron schedule triggers — trust `@nestjs/schedule`
+
+---
+
+## Health Checks
+
+If the project adds `@nestjs/terminus` for health endpoints:
+
+**What to test:**
+- Health endpoint returns 200 when all services are healthy
+- Health endpoint returns 503 when a dependency is down
+
+**Layer assignment:** **E2E** — test the `/health` endpoint with supertest
+
+---
+
+## Config Validation
+
+If the project adds `@nestjs/config` with schema validation (e.g., Joi or class-validator):
+
+**What to test:**
+- App fails to start with missing required env vars
+- App fails to start with invalid env var values
+
+**Layer assignment:** **Unit** (module compilation) — the module should fail to compile with bad config

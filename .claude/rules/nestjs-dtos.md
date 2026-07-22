@@ -15,33 +15,36 @@ description: 'DTO conventions for input validation and data transfer'
 
 DTOs are the source of request/response schemas in the exported `openapi.json`. Field-level documentation is the DTO's responsibility — controllers document operations (status codes, summaries), not schemas.
 
-### Default: rely on the Swagger CLI plugin (request DTOs)
+### Exported schemas require explicit Swagger metadata
 
-The project runs the `@nestjs/swagger` CLI plugin, configured in `nestjs-project/nest-cli.json` with `classValidatorShim: true` and `introspectComments: true`. For a request DTO that already carries `class-validator` decorators (`@IsEmail`, `@IsString`, `@MinLength`, `@MaxLength`, `@IsOptional`, `@Type`, …), the plugin auto-generates `@ApiProperty` from those decorators and from the TypeScript type of the field. Do **not** add `@ApiProperty` manually in this case:
+Although `nest-cli.json` configures the `@nestjs/swagger` CLI plugin, `npm run openapi:export` executes `src/openapi-export.ts` through `ts-node`. That path does not apply the Nest CLI compile-time transformer. A DTO that relies only on `class-validator` metadata exports as an empty `properties: {}` schema.
 
-- It is redundant — the plugin already emits the same metadata.
-- It drifts from the validation rule. `@ApiProperty({ minLength: 8 })` on a field with `@MinLength(8)` becomes a lie the day someone changes the validator to `@MinLength(12)` and forgets the swagger annotation.
+Every request and response DTO referenced by a controller must therefore annotate its fields explicitly with `@ApiProperty()` or `@ApiPropertyOptional()`. Keep Swagger constraints synchronized with `class-validator`; changing validation and OpenAPI metadata is one atomic contract change.
 
-For `description` and `example`, write a JSDoc comment above the field — `introspectComments: true` picks it up:
+For nested arrays, provide the element type explicitly. For enums, formats, nullable fields, and constrained identifiers, declare the corresponding schema metadata:
 
 ```typescript
-export class LoginDto {
-  /** User's registered email. */
-  @IsEmail()
-  email: string;
+export class InitiateVideoUploadDto {
+  @ApiProperty({ minLength: 1, maxLength: 255 })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  title: string;
+
+  @ApiProperty({ type: 'integer', minimum: 1 })
+  @IsInt()
+  @Min(1)
+  file_size: number;
+
+  @ApiProperty({ maxLength: 100, example: 'video/mp4' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  content_type: string;
 }
 ```
 
-Canonical request DTO: `nestjs-project/src/auth/dto/register.dto.ts` (purely `class-validator`, zero `@ApiProperty`).
-
-### When `@ApiProperty` is required
-
-Annotate fields explicitly when the plugin cannot infer them:
-
-- **Response DTOs** — shapes that are not validated input have no `class-validator` decorators, so the plugin has nothing to introspect. Every field needs `@ApiProperty`. Canonical example: `nestjs-project/src/common/openapi/api-error-envelope.dto.ts`.
-- **Polymorphic / union types** (e.g., `string | string[]`, `oneOf`) — the plugin does not infer unions. Use `@ApiProperty({ oneOf: [...] })`.
-- **Optional / nullable fields on a response DTO** — declare `@ApiProperty({ required: false, nullable: true })`.
-- **Controlled `example`** that differs from the inferred type (UUID, ISO date, formatted slug, etc.).
+The exported `openapi.json` is the verification target. When adding or changing a DTO, export the spec and assert the named schema has the expected non-empty properties, required fields, item schemas, and constraints. Do not accept a test that only checks that `components.schemas` is globally non-empty.
 
 ### Reuse the shared error envelope
 

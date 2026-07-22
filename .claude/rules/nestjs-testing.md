@@ -9,28 +9,36 @@ description: 'Testing conventions for NestJS unit, integration, and e2e tests'
 
 # Testing Rules
 
-> Suffix selection (`*.spec.ts` vs `*.integration-spec.ts` vs `*.e2e-spec.ts`) and test file location are pre-creation decisions covered in `nestjs-project/CLAUDE.md` → "Test Type Selection". The rules below assume you are already inside a test file of the correct kind.
+> Suffix selection (`*.spec.ts` vs `*.integration-spec.ts` vs `*.e2e-spec.ts`) and test file location are pre-creation decisions covered in `nestjs-project/AGENTS.md` → "Test Type Selection". The rules below assume you are already inside a test file of the correct kind.
 
 ## Unit Tests (`*.spec.ts`)
 
 - Use `Test.createTestingModule()` from `@nestjs/testing` to set up the test module
-- Mock every external dependency (repositories via `getRepositoryToken`, services via `useValue`, etc.)
+- Mock owned external boundaries (repositories, `ObjectStoragePort`, queue, media processor) with `useValue` when testing service logic.
+- Configured module contract tests may deliberately initialize real TypeORM/BullMQ providers to prove DI and configuration. Keep these tests narrowly about module wiring, use a process-specific queue name, and close the module.
 - Follow the naming pattern: `describe('ClassName')` with descriptive `it('should ...')` blocks
 - A unit test that needs to "mock the database" by creating a real DataSource is not a unit test — convert it to `*.integration-spec.ts`
 
 ## Integration Tests (`*.integration-spec.ts`)
 
 - Use `Test.createTestingModule()` from `@nestjs/testing` to set up the test module
-- Use a real database — connect to the Docker `db` service (env vars from `.env` are available inside the container)
+- Use the real Docker dependency for the contract under test: PostgreSQL (`db`), MinIO/S3 (`minio`), Redis/BullMQ (`redis`), Mailpit (`mailpit`), and/or FFmpeg/FFprobe installed in the Node image.
+- Prefer `createTestDataSource()` for PostgreSQL integration setup; do not duplicate incomplete entity arrays or host defaults.
 - **Table cleanup:** `repository.delete({})` throws `Empty criteria(s) are not allowed`. Use `dataSource.query('DELETE FROM table_name')` or `repository.clear()` to wipe tables between tests
+- **MinIO cleanup:** use unique object keys, track every created key/multipart upload, delete objects and abort still-active sessions in teardown.
+- **Redis cleanup:** use a process-specific physical queue and `obliterate({ force: true })`. Never use `FLUSHALL`.
+- **Presigned URL reachability:** a test running inside `nestjs-api` that follows signed URLs must temporarily set `STORAGE_PUBLIC_ENDPOINT` to `STORAGE_INTERNAL_ENDPOINT` and restore it afterward.
+- **Media cleanup:** real FFmpeg tests use temporary directories and remove them recursively in `afterAll`/`finally`.
 
 ## E2E Tests (`*.e2e-spec.ts`)
 
 - Use `supertest` to make HTTP requests against the running app
 - Test complete request/response cycles including status codes, response shape, and error cases
 - Test authentication and authorization flows (valid token, invalid token, missing token)
-- Use a real test database — do not mock the database layer in e2e tests
-- **Reproduce `main.ts` global config manually:** `Test.createTestingModule()` does not execute `main.ts`. Global pipes, filters, and interceptors must be applied explicitly in `beforeAll`: `app.useGlobalPipes(new ValidationPipe({ whitelist: true }))`
+- Use real backend dependencies — do not mock PostgreSQL, MinIO, or Redis in video e2e tests.
+- **Reproduce `main.ts` global config manually:** `Test.createTestingModule()` does not execute `main.ts`. Apply the full `ValidationPipe` options plus `DomainExceptionFilter` and `ValidationExceptionFilter` before `app.init()`.
+- Clear shared throttler storage, PostgreSQL tables, tracked MinIO objects/uploads, and the application queue between cases.
+- For stream/download redirects, disable automatic redirect following, assert `307`/`Location`, then fetch the signed target separately to verify `200`/`206`, range headers, and attachment disposition.
 
 ## Modules with `forRootAsync` + `ConfigType`
 
@@ -72,6 +80,20 @@ const mockDataSource = {
 
 For integration tests, use the real `DataSource` and assert side effects on the actual repository.
 
+## BullMQ and Worker Integration
+
+- Publisher tests assert both Redis job state and PostgreSQL outbox state. Use deterministic job IDs to prove duplicate publication is idempotent.
+- Processor tests enqueue a real job instead of invoking only the processor method when the behavior under test includes delivery, attempts, backoff, or job state.
+- Close the real `Worker` before obliterating/closing its queue. Close Nest modules and standalone DataSources after queue handles are gone.
+- Test success and final failure: intermediate attempts leave the video processing; only the terminal failure persists a sanitized error and `error` status.
+
+## S3 Multipart Integration
+
+- Upload parts through the generated presigned URLs; do not call private SDK internals as a shortcut.
+- Use at least 5 MiB for every non-final multipart part because S3 enforces the minimum part size.
+- Treat `ListParts` as authoritative and assert ordering, ETags, and sizes before completion.
+- Test complete, abort, retry/reconciliation, `HeadObject`, and ranged `GetObject` behavior against MinIO.
+
 ## Compensation Logic
 
 When a service performs a multi-step operation that has a compensating action on failure (e.g., delete the saved user if the follow-up channel creation fails), the integration test for the compensation path should `jest.spyOn` the failing collaborator to throw, and then assert that the compensating delete really ran against the DB.
@@ -82,7 +104,7 @@ When a service performs a multi-step operation that has a compensating action on
 - Avoid hardcoding values in tests; use variables or helper functions to generate test data
 - Use realistic data that reflects actual use cases to catch edge cases and ensure test reliability
 - Clean up test data after each test to maintain isolation and prevent side effects
-- For e2e tests, consider using a separate test database to avoid conflicts with development data
+- The current suite uses the shared Compose database, bucket, and Redis instance. Run all integration/e2e suites with `--runInBand` and clean only the resources created by each test.
 
 ## Test Structure
 

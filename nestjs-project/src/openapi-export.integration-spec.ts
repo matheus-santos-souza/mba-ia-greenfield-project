@@ -128,4 +128,144 @@ describe('exportSpec (integration)', () => {
       }
     }
   });
+
+  it('exports exactly the seven phase video operations', () => {
+    const paths = document.paths as Record<
+      string,
+      Record<string, Record<string, unknown>>
+    >;
+    const expectedOperations = [
+      'post /videos/uploads',
+      'get /videos/{videoId}/uploads/{uploadId}',
+      'post /videos/{videoId}/uploads/{uploadId}/parts',
+      'post /videos/{videoId}/uploads/{uploadId}/complete',
+      'delete /videos/{videoId}/uploads/{uploadId}',
+      'get /videos/{publicId}/stream',
+      'get /videos/{publicId}/download',
+    ];
+    const videoOperations = Object.entries(paths)
+      .filter(([path]) => path.startsWith('/videos'))
+      .flatMap(([path, methods]) =>
+        Object.keys(methods).map((method) => `${method} ${path}`),
+      );
+
+    expect(videoOperations.sort()).toEqual(expectedOperations.sort());
+  });
+
+  it('documents the stream redirect, byte ranges and redirect target responses', () => {
+    const operation = getOperation(
+      document,
+      '/videos/{publicId}/stream',
+      'get',
+    );
+    const parameters = operation.parameters as Array<Record<string, unknown>>;
+    const publicId = parameters.find(
+      (parameter) => parameter.name === 'publicId',
+    );
+    const range = parameters.find((parameter) => parameter.name === 'Range');
+    const responses = operation.responses as Record<
+      string,
+      Record<string, unknown>
+    >;
+    const redirect = responses['307'];
+    const redirectHeaders = redirect.headers as Record<
+      string,
+      Record<string, unknown>
+    >;
+    const target = operation['x-redirect-target'] as Record<string, unknown>;
+    const targetResponses = target.responses as Record<
+      string,
+      Record<string, unknown>
+    >;
+    const partialHeaders = targetResponses['206'].headers as Record<
+      string,
+      unknown
+    >;
+
+    expect(operation.security).toContainEqual({ 'access-token': [] });
+    expect(publicId).toMatchObject({
+      in: 'path',
+      required: true,
+      schema: {
+        type: 'string',
+        minLength: 21,
+        maxLength: 21,
+        pattern: '^[A-Za-z0-9_-]{21}$',
+      },
+    });
+    expect(range).toMatchObject({
+      in: 'header',
+      required: false,
+      schema: { type: 'string', pattern: '^bytes=\\d*-\\d*$' },
+    });
+    expect(redirect).not.toHaveProperty('content');
+    expect(redirectHeaders.Location).toMatchObject({
+      schema: { type: 'string', format: 'uri' },
+    });
+    expect(Object.keys(targetResponses).sort()).toEqual(['200', '206']);
+    expect(partialHeaders).toEqual(
+      expect.objectContaining({
+        'Accept-Ranges': expect.any(Object),
+        'Content-Range': expect.any(Object),
+        'Content-Length': expect.any(Object),
+        'Content-Type': expect.any(Object),
+      }),
+    );
+    expectErrorEnvelopeResponses(responses);
+  });
+
+  it('documents the attachment download redirect without a response body', () => {
+    const operation = getOperation(
+      document,
+      '/videos/{publicId}/download',
+      'get',
+    );
+    const responses = operation.responses as Record<
+      string,
+      Record<string, unknown>
+    >;
+    const redirect = responses['307'];
+    const target = operation['x-redirect-target'] as Record<string, unknown>;
+    const targetResponses = target.responses as Record<
+      string,
+      Record<string, unknown>
+    >;
+    const targetHeaders = targetResponses['200'].headers as Record<
+      string,
+      unknown
+    >;
+
+    expect(operation.security).toContainEqual({ 'access-token': [] });
+    expect(redirect).not.toHaveProperty('content');
+    expect(targetHeaders).toHaveProperty('Content-Disposition');
+    expectErrorEnvelopeResponses(responses);
+  });
 });
+
+function getOperation(
+  document: Record<string, unknown>,
+  path: string,
+  method: string,
+): Record<string, unknown> {
+  const paths = document.paths as Record<
+    string,
+    Record<string, Record<string, unknown>>
+  >;
+  const operation = paths[path]?.[method];
+  expect(operation).toBeDefined();
+  return operation;
+}
+
+function expectErrorEnvelopeResponses(
+  responses: Record<string, Record<string, unknown>>,
+): void {
+  for (const status of ['400', '401', '403', '404', '409', '503']) {
+    expect(responses[status]).toMatchObject({
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/ApiErrorEnvelope' },
+        },
+      },
+    });
+  }
+}
