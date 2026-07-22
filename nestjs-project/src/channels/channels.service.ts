@@ -7,13 +7,28 @@ const PG_UNIQUE_VIOLATION = '23505';
 const NICKNAME_COLUMN = 'nickname';
 const MAX_RETRIES = 5;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function hasPgUniqueViolationDetails(value: unknown, column: string): boolean {
+  if (!isRecord(value)) return false;
+
+  const { code, detail } = value;
+  return (
+    code === PG_UNIQUE_VIOLATION &&
+    typeof detail === 'string' &&
+    detail.includes(column)
+  );
+}
+
 function isPgUniqueViolationOnColumn(err: unknown, column: string): boolean {
   if (!(err instanceof QueryFailedError)) return false;
-  const e = err as any;
+
+  const driverError: unknown = err.driverError;
   return (
-    e.code === PG_UNIQUE_VIOLATION &&
-    typeof e.detail === 'string' &&
-    e.detail.includes(column)
+    hasPgUniqueViolationDetails(driverError, column) ||
+    hasPgUniqueViolationDetails(err, column)
   );
 }
 

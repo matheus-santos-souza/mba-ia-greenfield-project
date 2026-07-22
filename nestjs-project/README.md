@@ -31,6 +31,34 @@
 $ npm install
 ```
 
+## Local infrastructure
+
+The backend runs in Docker Compose with PostgreSQL, MinIO, Redis and Mailpit.
+The API and video worker use the same Node 25 image; FFmpeg and FFprobe are
+installed in that image. Start the stack with:
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+`db`, `minio` and `redis` must report healthy before the application services
+start. `minio-init` creates the private media bucket idempotently and then
+exits successfully. MinIO's S3 API is available at `http://localhost:9000` and
+its console at `http://localhost:9001`.
+
+Copy `.env.example` to `.env` before starting the stack. Internal connections
+must use the Compose service names (`db`, `minio`, and `redis`). In particular,
+`STORAGE_INTERNAL_ENDPOINT` is used by server-side S3 operations and remains
+`http://minio:9000`, while `STORAGE_PUBLIC_ENDPOINT` must be routable by the
+browser because it is embedded in presigned URLs.
+
+Storage and upload behavior are controlled by the `STORAGE_*`, `REDIS_*`,
+`VIDEO_*`, `FFMPEG_PATH`, and `FFPROBE_PATH` variables documented in
+`.env.example`. Storage credentials are mandatory, presigned URL TTLs must be
+positive, and `VIDEO_MAX_FILE_SIZE_BYTES` cannot exceed 10 GiB
+(`10737418240`).
+
 ## Compile and run the project
 
 ```bash

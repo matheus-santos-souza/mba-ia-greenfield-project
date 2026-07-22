@@ -1,0 +1,12 @@
+export const VIDEO_PROCESSING_QUEUE = 'video-processing' as const;
+export const PROCESS_VIDEO_JOB = 'video.processing.requested' as const;
+
+export const VIDEO_PROCESSING_JOB_ID_PREFIX = 'video-processing-' as const;
+export const VIDEO_PROCESSING_COMPLETED_JOB_RETENTION = 1_000;
+export const VIDEO_PROCESSING_FAILED_JOB_RETENTION = 5_000;
+
+export const VIDEO_PROCESSING_OUTBOX_BATCH_SIZE = 10;
+export const VIDEO_PROCESSING_OUTBOX_CLAIM_LEASE_MS = 30_000;
+export const VIDEO_PROCESSING_OUTBOX_POLL_INTERVAL_MS = 1_000;
+export const VIDEO_PROCESSING_OUTBOX_MAX_BACKOFF_MS = 300_000;
+export const VIDEO_PROCESSING_OUTBOX_MAX_ERROR_LENGTH = 1_000;

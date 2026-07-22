@@ -99,6 +99,19 @@ me(@CurrentUser() user: JwtPayload): JwtPayload { ... }
 
 `nestjs-project/src/auth/auth.controller.ts` is the reference implementation of the convention above — when in doubt about how to combine these decorators, mirror it.
 
+### Presigned object-storage redirects
+
+Video delivery returns `307 Temporary Redirect`, not media bytes. A redirect handler must:
+
+- use `@Res({ passthrough: true })` only to set `Location`, while still returning through Nest;
+- declare `@HttpCode(HttpStatus.TEMPORARY_REDIRECT)`;
+- document the `Location` header and omit response content for the `307` response;
+- document storage-target behavior with `x-redirect-target` when clients need range or attachment semantics;
+- keep private object keys, internal UUIDs, and credentials out of response bodies and download filenames;
+- use `307`, not `302`, so headers such as `Range` can be preserved when following a stream redirect.
+
+`VideosController` is the canonical example for owner-authorized presigned stream/download redirects and multipart upload endpoints.
+
 ## Error Handling
 
 ## Never Swallow Errors
