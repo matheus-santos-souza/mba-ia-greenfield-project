@@ -1,0 +1,6 @@
+export const OBJECT_STORAGE_PORT = Symbol('OBJECT_STORAGE_PORT');
+
+export const S3_INTERNAL_CLIENT = Symbol('S3_INTERNAL_CLIENT');
+export const S3_PUBLIC_CLIENT = Symbol('S3_PUBLIC_CLIENT');
+
+export const MAX_MULTIPART_PARTS = 10_000;
