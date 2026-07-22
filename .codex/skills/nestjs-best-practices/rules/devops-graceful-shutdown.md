@@ -9,6 +9,8 @@ tags: devops, graceful-shutdown, lifecycle, kubernetes
 
 Handle SIGTERM and SIGINT signals to gracefully shutdown your NestJS application. Stop accepting new requests, wait for in-flight requests to complete, close database connections, and clean up resources. This prevents data loss and connection errors during deployments.
 
+For a standalone BullMQ application context, call `enableShutdownHooks()` even though there is no HTTP server. Close the BullMQ worker gracefully first; race that close against the configured grace period, then terminate active FFmpeg children and force-close the worker only after timeout. Lifecycle loops must wake their pending timer and await the active iteration instead of leaving the process open.
+
 **Incorrect (ignoring shutdown signals):**
 
 ```typescript

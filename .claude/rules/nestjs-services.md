@@ -67,3 +67,6 @@ async createChannel(dto: CreateChannelDto): Promise<Channel> {
 
 - In these contexts, rethrowing would crash the process. `catch` blocks should log the error and optionally queue for retry or send to a dead letter queue
 - These are the **only** contexts where catch-and-log without rethrowing is acceptable
+- Distinguish the long-running loop from one attempt. The outer cleanup/outbox polling loop may catch, sanitize, log, and continue after its delay; `cleanupOnce()`, `relayOnce()`, queue processors, and processing services must still return an explicit result or throw so retry/state transitions remain observable.
+- BullMQ processors must rethrow failures so BullMQ applies configured attempts/backoff. Persist `error` only on the terminal attempt; swallowing an intermediate failure incorrectly marks the job successful.
+- Never log presigned URLs, object-storage credentials, raw FFmpeg stderr, temporary paths, or unbounded external error strings. Persist/log bounded sanitized categories or messages.

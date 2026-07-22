@@ -25,25 +25,17 @@ Entities are **never** tested at the unit layer — they have no logic, only str
 ## Setup pattern
 
 ```typescript
-// user.entity.integration.spec.ts
+// user.entity.integration-spec.ts
 import { DataSource, Repository } from 'typeorm';
 import { User } from './user.entity';
+import { createTestDataSource } from '../test/create-test-data-source';
 
 describe('User entity (integration)', () => {
   let dataSource: DataSource;
   let userRepository: Repository<User>;
 
   beforeAll(async () => {
-    dataSource = new DataSource({
-      type: 'postgres',
-      host: process.env.DB_HOST ?? 'localhost',
-      port: Number(process.env.DB_PORT ?? 5432),
-      username: process.env.DB_USERNAME ?? 'streamtube',
-      password: process.env.DB_PASSWORD ?? 'streamtube',
-      database: process.env.DB_DATABASE ?? 'streamtube',
-      entities: [User],
-      synchronize: true, // OK for test setup — creates tables
-    });
+    dataSource = createTestDataSource([User]);
     await dataSource.initialize();
     userRepository = dataSource.getRepository(User);
   });
@@ -102,10 +94,8 @@ describe('User entity (integration)', () => {
 
 ## Examples from project
 
-The project currently has no entities. When entities are created (per project plan: User, Channel, Video, Comment, Like, Subscription), each will need integration tests for:
-- User: unique email, `select: false` on password, `@CreateDateColumn`
-- Channel: unique slug/name, foreign key to User, cascade behavior
-- Video: unique URL slug, enum for visibility/status, foreign key to Channel
-- Comment: nested comments (self-referencing relation), foreign key to Video and User
-- Like: unique compound constraint (user + video), foreign key integrity
-- Subscription: unique compound constraint (subscriber + channel)
+- **User / auth token entities** → unique email/token rules, hidden sensitive columns, expiry/revocation fields, and cascades.
+- **Channel** → unique nickname, one-to-one ownership, and video cascade relation.
+- **Video** → 21-character unique public ID, `draft|processing|ready|error`, nullable artifact/metadata fields, duration check, and channel cascade.
+- **VideoUpload** → one session per video, unique S3 upload ID, 1..10 GiB size check, minimum part size, expiry, and `initiated|completed|aborted`.
+- **VideoProcessingOutbox** → unique `(video_id,event_type)`, fixed event type, JSON payload, pending-poll index, and video cascade.

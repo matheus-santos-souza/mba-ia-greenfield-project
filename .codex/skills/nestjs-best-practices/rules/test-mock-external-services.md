@@ -5,9 +5,11 @@ impactDescription: Ensures fast, reliable, deterministic tests
 tags: testing, mocking, external-services, jest
 ---
 
-## Mock External Services in Tests
+## Mock External Services in Unit Tests
 
-Never call real external services (APIs, databases, message queues) in unit tests. Mock them to ensure tests are fast, deterministic, and don't incur costs. Use realistic mock data and test edge cases like timeouts and errors.
+Never call real external services in pure unit tests. Mock owned ports to keep branch tests fast and deterministic. This rule does **not** apply to integration/e2e contracts: this project deliberately uses real Docker PostgreSQL, MinIO/S3, Redis/BullMQ, FFmpeg/FFprobe, and Mailpit at those layers.
+
+An in-memory fake cannot prove S3 multipart/range semantics, PostgreSQL locking/constraints, BullMQ retry/deduplication, media compatibility, or SMTP transport. Pair unit tests with the real boundary test whenever that protocol is part of the behavior.
 
 **Incorrect (calling real APIs and databases):**
 

@@ -20,7 +20,7 @@ Services are the most varied artifact type. The test layer depends on the servic
 | DB access only (no branching) | — | ✅ real DB | No logic to unit-test; the DB contract IS the behavior |
 | Branching + DB access | ✅ mock repo (test branches) | ✅ real DB (test queries) | Unit proves logic; integration proves queries — neither substitutes the other |
 | Configured lib (JWT, cache, throttle) | ✅ real lib with test config | — | Mocking hides config bugs; use real lib with test-safe values |
-| Side-effect dep (email, storage) | — | ✅ real capture service | Mailpit captures SMTP; local filesystem for storage |
+| Side-effect dep (email, storage, queue, media) | — | ✅ real boundary | Mailpit, MinIO/S3, Redis/BullMQ, or FFmpeg/FFprobe proves the contract |
 | Branching + side-effect dep | ✅ mock the dep (test branches) | ✅ real capture service | Both layers needed |
 | Pure delegation (no branching, no boundary) | — | — | Skip — no testable behavior |
 
@@ -85,12 +85,13 @@ describe('AuthService (unit)', () => {
 ## Setup pattern — Integration test (DB contract)
 
 ```typescript
-// users.service.integration.spec.ts
+// users.service.integration-spec.ts
 import { Test, TestingModule } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { UsersService } from './users.service';
 import { User } from './user.entity';
+import { createTestDataSource } from '../test/create-test-data-source';
 
 describe('UsersService (integration)', () => {
   let service: UsersService;
@@ -99,16 +100,7 @@ describe('UsersService (integration)', () => {
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
       imports: [
-        TypeOrmModule.forRoot({
-          type: 'postgres',
-          host: process.env.DB_HOST ?? 'localhost',
-          port: Number(process.env.DB_PORT ?? 5432),
-          username: process.env.DB_USERNAME ?? 'streamtube',
-          password: process.env.DB_PASSWORD ?? 'streamtube',
-          database: process.env.DB_DATABASE ?? 'streamtube',
-          entities: [User],
-          synchronize: true,
-        }),
+        TypeOrmModule.forRoot(createTestDataSource([User]).options),
         TypeOrmModule.forFeature([User]),
       ],
       providers: [UsersService],
@@ -160,11 +152,11 @@ describe('UsersService (integration)', () => {
 
 ## Examples from project
 
-Currently only `AppService` exists (scaffolding — no branching, no DB → skip).
+- **AuthService** [branching + PostgreSQL + JWT + Mailpit] → unit branches with owned services mocked; integration with real database/JWT/mail capture.
+- **VideoUploadService** [branching + PostgreSQL + MinIO] → unit state/validation/compensation branches with mocked ports; integration for real multipart/persistence/outbox behavior.
+- **VideoDeliveryService** [ownership/readiness + MinIO presigning] → unit authorization/error mapping; integration/e2e for signed redirect targets and byte ranges.
+- **VideoUploadCleanupService** [polling + PostgreSQL claim + MinIO abort] → unit loop/backoff/error paths; integration for skip-locked claim and real multipart abort.
+- **VideoProcessingService** [state + MinIO + media processor] → unit retry/idempotency/sanitization; full integration through real worker dependencies.
+- **VideoProcessingOutboxRelay** [polling + PostgreSQL + Redis/BullMQ] → unit retry/lifecycle; integration for job payload/deduplication and publish markers.
 
-When domain services are created:
-- **AuthService** [branching + configured lib (JWT)] → Unit: test login/register/reset branches with mocked UsersService + real JwtModule. Integration: if it directly queries the DB.
-- **UsersService** [DB access + possible branching] → Unit: test branch logic if any (mock repo). Integration: test DB queries with real PostgreSQL.
-- **VideosService** [DB + storage + queue] → Unit: test status transitions, visibility rules (mock deps). Integration: test DB queries, storage uploads (local adapter), queue publishing.
-- **CommentsService** [DB + branching for nesting] → Unit: test nesting depth validation. Integration: test nested comment queries.
-- **ChannelsService** [DB access] → Integration: test slug uniqueness, ownership queries.
+Read `background-jobs.md`, `external-adapters.md`, and `../references/external-systems.md` for Phase 03 setup and cleanup details.

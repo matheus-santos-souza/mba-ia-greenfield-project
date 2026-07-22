@@ -144,7 +144,6 @@ function createMockExecutionContext(request: Record<string, any>): ExecutionCont
 
 ## Examples from project
 
-No guards exist yet. Expected per project plan:
-- **JwtAuthGuard** [extends `AuthGuard('jwt')`] → E2E only (Passport delegation)
-- **ChannelOwnerGuard** [delegates to `ChannelsService.isOwner()`] → E2E primarily; unit if complex
-- **VideoOwnerGuard** [delegates to `VideosService.isOwner()`] → E2E primarily
+- **JwtAuthGuard** is registered globally through `APP_GUARD`; `@Public()` is the explicit opt-out. Test it through auth/video e2e flows.
+- Video ownership is currently enforced in `VideoOwnershipService`/`VideoDeliveryService`, not a custom guard. E2E tests must cover unauthenticated `401`, non-owner `403`, and the owner success path without inventing a `VideoOwnerGuard` test.
+- Clear the real throttler storage between e2e cases so global rate-limiter state does not leak `429` responses.

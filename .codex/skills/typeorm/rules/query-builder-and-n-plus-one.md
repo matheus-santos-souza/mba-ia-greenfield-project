@@ -78,4 +78,10 @@ const users = await userRepository
 - Use `getRawOne()` / `getRawMany()` for aggregations
 - When iterating a collection that accesses relations, load them upfront with `relations` or `leftJoinAndSelect`
 
+### Concurrent Background Claims
+
+For outbox/cleanup workers running in multiple replicas, claim a bounded deterministic batch with `FOR UPDATE SKIP LOCKED`. The outbox persists a lease and commits before Redis publication. Expired multipart cleanup intentionally holds the row lock through its bounded MinIO abort and state update so another cleaner skips it; do not generalize that exception to media transfer/transcoding or polling waits.
+
+Test concurrent claimers against real PostgreSQL; a mocked QueryBuilder cannot prove lock behavior.
+
 Reference: [TypeORM QueryBuilder](https://typeorm.io/select-query-builder)

@@ -76,5 +76,8 @@ await AppDataSource.transaction(async (manager) => {
 - Always `release()` the QueryRunner in a `finally` block
 - Use `queryRunner.manager` (not the global repository) inside transactions
 - In NestJS, inject `DataSource` and use `dataSource.transaction()` or `dataSource.createQueryRunner()`
+- Lock aggregate rows before state transitions that can race (`pessimistic_write` for complete/abort/process flows), and keep idempotency checks inside the transaction.
+- For reliable post-commit jobs, insert a transactional outbox event in the same transaction as the domain state. Publish to Redis/BullMQ after commit; do not make PostgreSQL + Redis a non-atomic dual write.
+- Prefer committing before Redis/MinIO/FFmpeg/SMTP work. The project has one deliberate bounded exception: expired multipart cleanup keeps a `FOR UPDATE SKIP LOCKED` row lock while aborting that MinIO session, then persists `aborted` before commit so concurrent cleaners cannot duplicate the abort. Keep this batch small and covered by a real concurrency integration test. Never hold transactions across media transfer/transcoding, polling sleeps, or unbounded external waits.
 
 Reference: [TypeORM Transactions](https://typeorm.io/transactions)

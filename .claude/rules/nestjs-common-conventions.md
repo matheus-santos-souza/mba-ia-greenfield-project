@@ -16,6 +16,10 @@ description: 'NestJS common conventions'
 | Entity     | `user.entity.ts`       | `User`              |
 | DTO        | `create-user.dto.ts`   | `CreateUserDto`     |
 | Guard      | `auth.guard.ts`        | `AuthGuard`         |
+| Repository | `video.repository.ts`  | `VideoRepository`   |
+| Port       | `object-storage.port.ts` | `ObjectStoragePort` |
+| Queue processor | `video-processor.ts` | `VideoProcessor`  |
+| Background relay | `video-processing-outbox-relay.ts` | `VideoProcessingOutboxRelay` |
 | Constants  | `auth.constants.ts`    | (named exports)     |
 
 - **Files:** kebab-case
@@ -30,6 +34,7 @@ description: 'NestJS common conventions'
 - Never use `new` to instantiate services or repositories
 - Use `private readonly` by default; `protected` only for subclasses
 - Use `@Inject()` only when needed: for custom providers with string/symbol tokens (e.g., `@Inject('CONFIG')`) or NestJS symbols (e.g., `APP_GUARD`). For standard class-based providers, constructor injection without `@Inject()` is sufficient
+- Use symbol/class tokens for architectural ports (`OBJECT_STORAGE_PORT`, `MediaProcessorPort`) and map concrete adapters with `useExisting`; consumers depend on the port, not the AWS SDK/FFmpeg implementation.
 
 ## Async/Await
 

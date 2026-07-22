@@ -102,6 +102,8 @@ namingStrategy: new SnakeNamingStrategy(),
 **Key points:**
 - Add indexes on columns used in `WHERE`, `JOIN`, and `ORDER BY`
 - Name indexes explicitly in migrations (e.g., `IDX_USERS_EMAIL`)
+- Use partial indexes for hot lifecycle subsets when the query predicate is stable, such as unpublished outbox events. Match index column order to the claim query's filter/order.
+- Back idempotency with named unique constraints (for example one outbox event per video/event type), not only application checks.
 - Use `SnakeNamingStrategy` to auto-convert camelCase properties to snake_case columns
 - Prefer database-level `onDelete` over TypeORM `cascade` for deletion safety
 

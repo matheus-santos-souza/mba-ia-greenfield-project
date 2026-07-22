@@ -12,9 +12,9 @@ In NestJS terms, this means:
 |---|---|---|---|
 | **Owned services** (services you wrote) | Mock with `useValue` | Use real (or mock if unrelated) | Use real |
 | **Configured libs** (JwtModule, CacheModule, ThrottlerModule) | Use real with test config | Use real | Use real |
-| **Side-effect deps** (email, external APIs) | Mock | Use real capture (Mailpit) or fake | Use real capture or fake |
+| **Side-effect ports** (storage, queue, media, email) | Mock the owned port for branch logic | Use real MinIO, Redis/BullMQ, FFmpeg/FFprobe, or Mailpit when proving that contract | Use real backend dependencies required by the HTTP flow |
 | **Database** (TypeORM repositories) | Mock in unit tests | Use real (Docker PostgreSQL) | Use real |
-| **Slow pure functions** (bcrypt hash) | Do NOT mock — use lower cost factor | Do NOT mock | Do NOT mock |
+| **Password hashing** (argon2) | Use real when hashing is the behavior; otherwise mock the owned auth/user boundary | Use real | Use real |
 
 ## When a Mock is Healthy
 
@@ -29,6 +29,7 @@ A mock is unhealthy when:
 - **Many mocks are needed to set up one test** — signal that the unit under test has too many responsibilities. Either rewrite as an integration test or split the service.
 - **The mock replicates the implementation** — `jest.fn().mockReturnValue(expectedResult)` where `expectedResult` is the same value the real code returns. This is a mirror test.
 - **The mock conceals a system boundary** — mocking a repository in a test that should verify the query is correct. The query IS the behavior.
+- **The mock replaces the protocol being claimed** — an in-memory buffer cannot prove S3 multipart/range semantics, a fake array cannot prove BullMQ retry/deduplication, and fixture bytes cannot prove FFmpeg compatibility.
 
 ## NestJS Mocking Patterns
 

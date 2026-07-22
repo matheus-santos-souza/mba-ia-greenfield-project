@@ -11,6 +11,7 @@ Controllers are thin delegation layers — they receive HTTP requests, delegate 
 - **Auth enforcement** — protected routes return 401 without token, 403 without permission
 - **Response shape** — response body matches expected structure
 - **Error responses** — domain exceptions map to correct HTTP error format via exception filters
+- **Redirect contracts** — `307` carries only `Location`; the separately fetched MinIO target proves range/download headers and bytes
 
 ## Layer assignment
 
@@ -104,6 +105,8 @@ describe('UsersController (e2e)', () => {
 - Always call `app.close()` in `afterAll` to prevent Jest from hanging
 - Test both success and error paths for each endpoint
 - Use a real database (Docker) — the same one used in integration tests
+- Video e2e also uses real MinIO and Redis because importing `AppModule` starts the storage/queue/outbox wiring
+- Disable Supertest redirect following for presigned delivery endpoints, assert the API redirect first, then fetch the signed target
 
 ## When to skip
 
@@ -112,13 +115,9 @@ describe('UsersController (e2e)', () => {
 
 ## Examples from project
 
-Currently only `AppController` exists (scaffolding). The existing `app.controller.spec.ts` is a unit test for a controller — this is an anti-pattern per this guide. When real controllers are created, follow the E2E pattern above.
+- **AuthController** (`/auth`) → registration, confirmation, login/refresh/logout, recovery, `me`, global guard, validation, throttling, and shared error envelope.
+- **VideosController** (`/videos`) → seven authenticated owner-scoped operations: initiate/resume/sign/complete/abort multipart upload plus stream/download redirects.
+- `test/videos-uploads.e2e-spec.ts` uses real PostgreSQL, MinIO, and the AppModule BullMQ queue to prove status/shape/auth/ownership and multipart side effects.
+- `test/videos-stream.e2e-spec.ts` proves `307`, presigned target `200`/`206`, range headers, safe attachment name, ownership, and readiness.
 
-Expected controllers per project plan:
-- **UsersController** (`/users`) — registration, profile management
-- **AuthController** (`/auth`) — login, logout, password reset, email confirmation
-- **ChannelsController** (`/channels`) — channel CRUD, public page
-- **VideosController** (`/channels/:channelId/videos`) — video CRUD, upload, publish
-- **CommentsController** (`/videos/:videoId/comments`) — comment CRUD, nesting
-- **LikesController** — like/dislike on videos and comments
-- **SubscriptionsController** — subscribe/unsubscribe to channels
+The existing `app.controller.spec.ts` is scaffolding and must not be copied as a controller-unit-test pattern.

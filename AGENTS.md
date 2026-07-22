@@ -2,38 +2,40 @@
 
 ## Project Overview
 
-StreamTube — a video sharing platform (YouTube-like). Users can upload, manage, and publish videos. Anonymous users can watch freely; social features (comments, subscriptions, likes) require authentication.
+StreamTube — a video sharing platform (YouTube-like). Users can upload, manage, process, and publish videos. The platform also covers authentication, channels, email workflows, and an initialized web frontend.
 
 More info in the project overview: [docs/project-plan.md](docs/project-plan.md)
 
 ## Repository Structure
 
-This is a monorepo with two main areas:
+This is a monorepo with three main areas:
 
-- `nestjs-project/` — Backend API (NestJS 11, TypeScript, Express). Contains modules for users, channels, videos, comments, etc.
+- `nestjs-project/` — Backend API and standalone video worker (NestJS 11, TypeScript, Express, BullMQ, TypeORM, S3-compatible storage, FFmpeg).
 - `docs/` — Project documentation, architecture diagrams, and planning.
-- `next-frontend/` (Next.js) — not yet initialized
+- `next-frontend/` — initialized Next.js 16 / React 19 frontend.
 
 ## Architecture (C4 Container Diagram)
 
 See `docs/diagrams/software-arch.mermaid` for the full diagram. Key containers:
 
-- **Frontend** (Next.js) → calls API via REST, streams from Object Storage
-- **API** (Nest.js) → business rules, auth, reads/writes DB, uploads to storage, publishes jobs to queue, sends emails
-- **Video Worker** (FFmpeg) → consumes jobs from queue, processes videos, updates DB and storage
-- **Database** (PostgreSQL) → users, channels, videos, comments, likes
-- **Object Storage** (S3/MinIO) → video files and thumbnails
-- **Message Queue** (TBD) → video processing job queue
+- **Frontend** (Next.js) → calls the API via REST and accesses media through object-storage URLs
+- **API** (NestJS) → business rules, authentication, database access, storage orchestration, background-job publication, and email
+- **Video Worker** (standalone Nest application context with FFmpeg/FFprobe) → consumes BullMQ jobs and processes media asynchronously
+- **Database** (PostgreSQL 17) → application and workflow data
+- **Object Storage** (S3-compatible; MinIO locally) → private media files and generated artifacts
+- **Message Queue** (BullMQ + Redis 8) → asynchronous background jobs
 - **Email Service** (SMTP) → account confirmation and password recovery
 
 ## Docker Networking
 
-This project runs entirely in Docker containers. When configuring connections between services (database, cache, queue, etc.), **always use the Docker Compose service name** as the host — never `localhost` or `127.0.0.1`.
+The backend runs entirely in Docker containers. When configuring container-to-container connections (database, storage, queue, email, etc.), **always use the Docker Compose service name** as the host — never `localhost` or `127.0.0.1`.
 
 Inside a container, `localhost` refers to the container itself, not the host machine or other containers. Services communicate through the Docker Compose network using their service names (e.g., `db`, `nestjs-api`).
 
-- **Correct:** `DB_HOST=db` (the Compose service name)
-- **Wrong:** `DB_HOST=localhost`
+- **Correct:** `DB_HOST=db`, `STORAGE_INTERNAL_ENDPOINT=http://minio:9000`, `REDIS_HOST=redis`, `MAIL_HOST=mailpit`
+- **Wrong:** internal service configuration using `localhost`
+
+`STORAGE_PUBLIC_ENDPOINT` is the exception by design: it is embedded in presigned URLs and must be reachable by the URL consumer. It is `http://localhost:9000` for a browser or host client in local development, but tests running inside `nestjs-api` override it to the internal `http://minio:9000` endpoint when they fetch signed URLs themselves.
 
 This applies to all environment variables, configuration files, and code that references service hosts.
 
@@ -99,6 +101,9 @@ those skills.
 | [nestjs-modules](.claude/rules/nestjs-modules.md) | `nestjs-project/src/**/*.module.ts` | NestJS module structure conventions |
 | [nestjs-services](.claude/rules/nestjs-services.md) | `nestjs-project/**/*.service.ts` | Service layer error handling — errors must always propagate to upper layers |
 | [nestjs-testing](.claude/rules/nestjs-testing.md) | `nestjs-project/**/*.spec.ts`<br>`nestjs-project/**/*.integration-spec.ts`<br>`nestjs-project/**/*.e2e-spec.ts`<br>`nestjs-project/test/**` | Testing conventions for NestJS unit, integration, and e2e tests |
+| [object-storage-s3](.claude/rules/object-storage-s3.md) | `nestjs-project/src/storage/**`<br>storage-aware video services/config | S3/MinIO port boundary, deterministic keys, presigned URLs, multipart safety, and error translation |
+| [video-processing-queue](.claude/rules/video-processing-queue.md) | queue config, processing outbox/repository, `src/videos/processing/**`, worker bootstrap | Transactional outbox, BullMQ/Redis idempotency, retries, polling, and graceful shutdown |
+| [ffmpeg-media-processing](.claude/rules/ffmpeg-media-processing.md) | FFmpeg config/processor/port/shutdown and `Dockerfile.dev` | Safe process execution, canonical media artifacts, bounded diagnostics, temp files, and shutdown |
 | [next-frontend-bff-api](.claude/rules/next-frontend-bff-api.md) | `next-frontend/app/api/**/route.ts`<br>`next-frontend/lib/api/**/*.ts` | BFF Route Handlers and the typed upstream client — OpenAPI-anchored wire-shape pipeline |
 | [next-frontend-code-quality](.claude/rules/next-frontend-code-quality.md) | `next-frontend/**/*.ts`<br>`next-frontend/**/*.tsx` | TypeScript strict, imports, RSC/client boundary, file naming, `cn()`, Next.js primitives, env access |
 | [next-frontend-msw-mocks](.claude/rules/next-frontend-msw-mocks.md) | `next-frontend/mocks/**`<br>`next-frontend/**/*.integration.test.ts`<br>`next-frontend/**/*.integration.test.tsx` | MSW handler typing convention + Route Handler integration test pattern (paths-anchored fixtures) |

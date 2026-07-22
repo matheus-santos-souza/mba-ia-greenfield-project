@@ -4,6 +4,7 @@ description: >
   Testing guide for nestjs-project. Reference this skill when planning features,
   implementing code, creating tests, or reviewing changes in nestjs-project.
   Covers what to test, at which layer, and how to set up each test —
+  including PostgreSQL, MinIO/S3, BullMQ/Redis, FFmpeg workers, and Mailpit —
   organized by artifact type.
   Triggers on: planning nestjs-project features, implementing nestjs-project features,
   writing tests for nestjs-project, reviewing nestjs-project code, reviewing nestjs-project tests,
@@ -14,7 +15,7 @@ description: >
 
 This guide helps you decide **what to test**, at **which layer**, and **how to set up tests** for each type of artifact in `nestjs-project`. When working on a specific artifact type, read the corresponding guide in `artifacts/` for the complete recipe. Supporting references (mock strategies, file conventions, gotchas) are in `references/`.
 
-Artifact types covered: entities, services, controllers, modules, DTOs, guards, strategies, pipes, interceptors, filters, middleware. For anticipated types not yet in the project, see `artifacts/future-types.md`.
+Artifact types covered: entities, repositories, services, controllers, modules, DTOs, guards, strategies, background jobs, external adapters, pipes, interceptors, filters, and middleware. For anticipated types not yet in the project, see `artifacts/future-types.md`.
 
 ## 1. Testability Foundations
 
@@ -37,7 +38,7 @@ NestJS's DI container makes testing natural — `Test.createTestingModule()` let
 - Services with branching logic (e.g., conditional flows for registration, login, password reset)
 - Entity constraints and defaults — unique indexes, `select: false` fields, `@CreateDateColumn` behavior, cascade rules
 - Service-to-database contracts — repository queries, TypeORM relation loading, transaction boundaries
-- Service-to-external-system contracts — local storage uploads, SMTP sends via Mailpit, queue publishing
+- Service-to-external-system contracts — S3 multipart/presigned behavior against MinIO, SMTP sends via Mailpit, BullMQ publication/consumption against Redis, and real FFmpeg compatibility
 - Module DI wiring — every module with configured imports (`TypeOrmModule.forFeature()`, `JwtModule.register()`, `BullModule.registerQueue()`)
 - Guard authorization logic — role checks, ownership verification, token validation flows
 - Exception filter error mapping — domain exceptions to HTTP responses
@@ -67,7 +68,10 @@ When implementing a new feature, use this checklist to ensure all artifacts have
 | Service with branching + DB | Unit: branch logic (mock repo) + Integration: DB contract | `artifacts/services.md` |
 | Service with DB only (no branching) | Integration: DB contract | `artifacts/services.md` |
 | Service with configured lib (JWT, cache) | Unit: real lib with test config | `artifacts/services.md` |
-| Service with side-effect dep (email, storage) | Integration: real capture service (Mailpit) or local adapter | `artifacts/services.md` |
+| Repository / transactional query object | Integration: real PostgreSQL query, lock, transaction, constraints | `artifacts/repositories.md` |
+| Service with side-effect dep (email, storage) | Unit: mock port for branches + Integration: real Mailpit or MinIO/S3 contract | `artifacts/services.md` |
+| Outbox relay / BullMQ processor / scheduled cleanup | Unit: retry/lifecycle logic + Integration: real PostgreSQL/Redis/MinIO as applicable | `artifacts/background-jobs.md` |
+| S3 or media-process adapter | Unit: error/process control + Integration: real MinIO or FFmpeg/FFprobe | `artifacts/external-adapters.md` |
 | Module with configured imports | Unit: compilation test | `artifacts/modules.md` |
 | Controller | E2E only — do NOT write unit tests | `artifacts/controllers.md` |
 | DTO | E2E: one validation wiring test per endpoint | `artifacts/dtos.md` |
@@ -88,12 +92,15 @@ When creating or modifying an artifact, read the corresponding guide for the com
 | Artifact Type | Pattern | Test Layer(s) | Guide |
 |---|---|---|---|
 | Entities | `*.entity.ts` | Integration (real DB) | `artifacts/entities.md` |
+| Repositories | `*.repository.ts` | Integration (real PostgreSQL) | `artifacts/repositories.md` |
 | Services | `*.service.ts` | Unit and/or Integration | `artifacts/services.md` |
 | Modules | `*.module.ts` | Unit (compilation) | `artifacts/modules.md` |
 | Controllers | `*.controller.ts` | E2E only | `artifacts/controllers.md` |
 | DTOs | `*.dto.ts` | E2E (validation wiring) | `artifacts/dtos.md` |
 | Guards | `*.guard.ts` | E2E or Unit+E2E | `artifacts/guards.md` |
 | Strategies | `*.strategy.ts` | E2E (via guard) | `artifacts/strategies.md` |
+| Background Jobs | relays, processors, cleanup loops, worker bootstrap/shutdown | Unit + Integration | `artifacts/background-jobs.md` |
+| External Adapters | S3 adapter, FFmpeg media processor | Unit + Integration | `artifacts/external-adapters.md` |
 | Pipes | `*.pipe.ts` | Unit | `artifacts/pipes.md` |
 | Interceptors | `*.interceptor.ts` | Unit and/or E2E | `artifacts/interceptors.md` |
 | Filters | `*.filter.ts` | Unit + E2E | `artifacts/filters.md` |
@@ -113,6 +120,9 @@ When creating or modifying an artifact, read the corresponding guide for the com
 - ❌ **Skip reproducing `main.ts` global config in E2E** — `Test.createTestingModule()` does NOT execute `main.ts`; global pipes, filters, and interceptors must be applied explicitly (see `references/gotchas.md`)
 - ❌ **Test every DTO rule individually** — one E2E test per endpoint proving `ValidationPipe` rejects bad input is enough; don't test `class-validator` internals (see `artifacts/dtos.md`)
 - ❌ **Throw NestJS HTTP exceptions from services** — services throw domain exceptions; exception filters map them to HTTP responses (see `artifacts/filters.md`)
+- ❌ **Replace MinIO/Redis/FFmpeg with convenient fakes in contract tests** — use fakes only for unit branches; real multipart, queue retry/deduplication, and media compatibility require the real Docker boundary
+- ❌ **Use shared Redis-wide cleanup** — isolate queue names and clean only that queue; never use `FLUSHALL`
+- ❌ **Leak external handles** — close workers, queues, Nest modules, DataSources, S3 clients, timers, and temporary media directories in dependency order
 
 ## 6. E2E Terminology Note
 

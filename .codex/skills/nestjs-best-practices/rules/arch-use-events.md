@@ -9,6 +9,8 @@ tags: architecture, events, decoupling
 
 Use `@nestjs/event-emitter` for intra-service events and message brokers for inter-service communication. Events allow modules to react to changes without direct dependencies, improving modularity and enabling async processing.
 
+For a critical side effect coupled to a database commit, an in-memory event is insufficient: a process crash can lose it. Persist a transactional outbox event in the same transaction, then relay it to BullMQ/Redis with a deterministic job ID. Use in-memory events only when loss/replay across process restarts is acceptable.
+
 **Incorrect (direct service coupling):**
 
 ```typescript

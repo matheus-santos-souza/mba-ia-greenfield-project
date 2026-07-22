@@ -6,8 +6,8 @@
 
 | Layer | File Pattern | Location | Jest Config |
 |---|---|---|---|
-| **Unit** | `*.spec.ts` | Colocated with source in `src/` | `package.json` → `jest` section (rootDir: `src`, testRegex: `.*\.spec\.ts$`) |
-| **Integration** | `*.integration.spec.ts` | Colocated with source in `src/` | Same config as unit (matched by `.*\.spec\.ts$`) |
+| **Unit / module contract** | `*.spec.ts` | Colocated with source in `src/` | `package.json` → `jest` section (`rootDir: src`) |
+| **Integration** | `*.integration-spec.ts` | Colocated with source in `src/` | Same config, matched explicitly by `.*\.(spec|integration-spec)\.ts$` |
 | **E2E** | `*.e2e-spec.ts` | `test/` directory | `test/jest-e2e.json` (rootDir: `.`, testRegex: `.e2e-spec.ts$`) |
 
 ### Examples
@@ -17,11 +17,11 @@ src/
   users/
     users.service.ts
     users.service.spec.ts              # Unit test
-    users.service.integration.spec.ts  # Integration test
+    users.service.integration-spec.ts  # Integration test
     users.module.ts
     users.module.spec.ts               # Module compilation test
     user.entity.ts
-    user.entity.integration.spec.ts    # Entity integration test
+    user.entity.integration-spec.ts    # Entity integration test
   auth/
     auth.service.ts
     auth.service.spec.ts               # Unit test
@@ -31,7 +31,8 @@ test/
   users.e2e-spec.ts                    # E2E tests for /users
   auth.e2e-spec.ts                     # E2E tests for /auth
   channels.e2e-spec.ts                 # E2E tests for /channels
-  videos.e2e-spec.ts                   # E2E tests for /videos
+  videos-uploads.e2e-spec.ts           # Multipart upload HTTP flow
+  videos-stream.e2e-spec.ts            # Stream/download redirects
 ```
 
 ## Running Tests
@@ -39,8 +40,11 @@ test/
 All commands run inside the Docker container:
 
 ```bash
-# Unit + integration tests (all *.spec.ts in src/)
+# Unit + integration tests (sequential)
 docker compose -f nestjs-project/compose.yaml exec nestjs-api npm test
+
+# Integration tests only
+docker compose -f nestjs-project/compose.yaml exec nestjs-api npm run test:integration
 
 # Unit + integration tests in watch mode
 docker compose -f nestjs-project/compose.yaml exec nestjs-api npm run test:watch
@@ -52,7 +56,7 @@ docker compose -f nestjs-project/compose.yaml exec nestjs-api npm run test:e2e
 docker compose -f nestjs-project/compose.yaml exec nestjs-api npm run test:cov
 
 # Run specific test file
-docker compose -f nestjs-project/compose.yaml exec nestjs-api npx jest --testPathPattern users.service.spec
+docker compose -f nestjs-project/compose.yaml exec nestjs-api npm test -- path/to/file.spec.ts
 ```
 
 ## Coverage Targets (Thorough)
@@ -90,8 +94,9 @@ Add to jest config `coveragePathIgnorePatterns`:
   "jest": {
     "moduleFileExtensions": ["js", "json", "ts"],
     "rootDir": "src",
-    "testRegex": ".*\\.spec\\.ts$",
-    "transform": { "^.+\\.(t|j)s$": "ts-jest" },
+    "testRegex": ".*\\.(spec|integration-spec)\\.ts$",
+    "transform": { "^.+\\.(t|j)s$": ["ts-jest", { "tsconfig": { "allowJs": true } }] },
+    "setupFiles": ["dotenv/config"],
     "collectCoverageFrom": ["**/*.(t|j)s"],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
@@ -106,7 +111,8 @@ Add to jest config `coveragePathIgnorePatterns`:
   "rootDir": ".",
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
-  "transform": { "^.+\\.(t|j)s$": "ts-jest" }
+  "transform": { "^.+\\.(t|j)s$": ["ts-jest", { "tsconfig": { "allowJs": true } }] },
+  "setupFiles": ["dotenv/config"]
 }
 ```
 

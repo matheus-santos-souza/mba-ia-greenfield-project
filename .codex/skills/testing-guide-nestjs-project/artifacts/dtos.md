@@ -10,6 +10,7 @@ DTOs define the shape and validation rules for API input using `class-validator`
 - **Whitelist enforcement** — unknown properties are stripped when `whitelist: true` is set
 - **Security-critical validation** — if a DTO has business-critical rules (e.g., password strength, email format for registration), verify they reject at the HTTP layer
 - **Transform behavior** — `class-transformer` decorators (`@Type()`, `@Transform()`) convert types correctly
+- **OpenAPI schema export** — DTO fields, required arrays, nested items, enums, and constraints appear in `openapi.json` (the `ts-node` export path does not apply the Nest CLI plugin automatically)
 
 ## Layer assignment
 
@@ -20,6 +21,8 @@ DTOs define the shape and validation rules for API input using `class-validator`
 | DTO with complex transform logic | **Unit** (rare) | Only if `@Transform()` contains non-trivial logic worth isolating |
 
 DTOs do NOT get their own test files. Validation is tested as part of the controller's E2E tests.
+
+OpenAPI metadata is the exception: `openapi-export.integration-spec.ts` must assert the relevant named schema has non-empty, correct properties. Do not rely on a global "schemas is non-empty" assertion.
 
 ## Setup pattern
 
@@ -70,8 +73,8 @@ describe('POST /users — DTO validation', () => {
 
 ## Examples from project
 
-No DTOs exist yet. When created (per project plan), validation tests will be part of E2E tests:
-- `CreateUserDto` — tested in `UsersController` E2E: reject missing email, reject weak password
-- `CreateVideoDto` — tested in `VideosController` E2E: reject missing title
-- `CreateCommentDto` — tested in `CommentsController` E2E: reject empty body
-- `UpdateChannelDto` — tested in `ChannelsController` E2E: reject invalid fields
+- Auth DTOs are exercised by `auth.e2e-spec.ts` for validation, whitelist, and security-sensitive fields.
+- `InitiateVideoUploadDto` rejects missing/invalid title, declared file size, unsupported media type, and non-whitelisted input.
+- `SignVideoUploadPartsDto` enforces distinct integer part numbers within the request/S3 bounds.
+- `CompleteVideoUploadDto` validates nested ETag entries and strictly ascending unique part numbers.
+- Video response DTO schemas explicitly document UUID/public IDs, status enums, timestamps, presigned URI fields, and uploaded-part arrays.

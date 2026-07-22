@@ -2,177 +2,137 @@
 
 # External System Strategies
 
-How each external system is handled in tests. These strategies were confirmed with the team.
+Use the real Docker Compose dependencies when the test is proving an integration contract. The Phase 03 stack is PostgreSQL, MinIO through the S3 API, BullMQ backed by Redis, FFmpeg/FFprobe, and Mailpit. There is no local-filesystem storage adapter and no fake Redis test broker.
 
----
+All Node/Jest commands run inside `nestjs-api`. Container-to-container connections therefore use Compose service names: `db`, `minio`, `redis`, and `mailpit`.
 
-## PostgreSQL — Real (Docker)
+## Required Infrastructure
 
-**Strategy:** Real database via the Docker `db` service (already in `compose.yaml`).
+Start only infrastructure unless the task explicitly requires the API or worker processes:
 
-**Connection config for tests:**
+```bash
+docker compose up -d db minio minio-init redis mailpit
+docker compose ps --all
+```
+
+`db`, `minio`, and `redis` must be healthy. `minio-init` must exit with code `0` after idempotently creating the private bucket. Mailpit must be running.
+
+| Test boundary | Real dependencies |
+|---|---|
+| Entity/repository integration | PostgreSQL |
+| Auth/mail integration | PostgreSQL + Mailpit |
+| S3 storage/upload/delivery integration | PostgreSQL when needed + MinIO |
+| Queue publication integration | PostgreSQL + Redis/BullMQ |
+| Media processor integration | FFmpeg + FFprobe in the Node image |
+| Full worker integration | PostgreSQL + MinIO + Redis/BullMQ + FFmpeg/FFprobe |
+| Video HTTP e2e | AppModule + PostgreSQL + MinIO + Redis/BullMQ |
+
+## PostgreSQL — Real Docker Service
+
+Use `src/test/create-test-data-source.ts`. It always includes the project entities needed to satisfy relationships and defaults to:
+
 ```typescript
 {
   type: 'postgres',
-  host: process.env.DB_HOST ?? 'localhost',
+  host: process.env.DB_HOST ?? 'db',
   port: Number(process.env.DB_PORT ?? 5432),
   username: process.env.DB_USERNAME ?? 'streamtube',
   password: process.env.DB_PASSWORD ?? 'streamtube',
   database: process.env.DB_DATABASE ?? 'streamtube',
-  synchronize: true, // auto-create tables in test setup
+  synchronize: true,
 }
 ```
 
-**Test isolation:**
-- Use `dataSource.query('DELETE FROM "table_name"')` to clean tables between tests
-- Do NOT use `repository.delete({})` — throws `Empty criteria(s) are not allowed`
-- Alternative: `repository.clear()` (truncates the table)
-- For complex foreign key chains, delete in reverse dependency order or use `TRUNCATE ... CASCADE`
-- Use `beforeEach` for cleanup to ensure each test starts with a clean state
+The application config uses `DB_NAME`; the helper's test-only override is `DB_DATABASE`, with the same `streamtube` default. Do not duplicate DataSource setup in each test unless the test is specifically exercising migrations.
 
-**Entity setup:**
-- Use `synchronize: true` in test DataSource to auto-create tables from entities
-- For integration tests, import only the entities needed by the test — not all entities
-- For E2E tests, import `AppModule` which includes all entities via their domain modules
+Isolation rules:
 
----
+- Run integration and e2e suites sequentially with `--runInBand`.
+- Use `cleanAllTables(dataSource)` for the shared project schema; it deletes video outbox/uploads/videos before auth/channel/user tables.
+- For a focused table, use quoted `DELETE FROM "table"` or `repository.clear()`. Never use `repository.delete({})`.
+- Migration tests use `synchronize: false`, explicit migration classes, and restore the migrated schema in teardown.
+- Close a Nest-owned DataSource with `module.close()`/`app.close()`; destroy standalone DataSources explicitly.
 
-## Object Storage — Local Filesystem
+## Object Storage — Real MinIO Through S3
 
-**Strategy:** Local filesystem storage in development and tests. S3 in production.
+`StorageModule` exports `ObjectStoragePort`, implemented by `S3ObjectStorageService` with AWS SDK v3. MinIO is the S3-compatible development and test server. Tests must not introduce a filesystem driver as a substitute for multipart semantics, presigning, headers, or S3 error translation.
 
-**Approach:**
-- The storage layer should use an abstraction (e.g., `StorageService` interface) that allows switching between local filesystem and S3
-- In tests, use the local filesystem adapter — no mocking needed
-- Use a temporary directory for test uploads: `os.tmpdir()` or a dedicated `test-uploads/` directory
-- Clean up test files in `afterAll`
+Configuration:
 
-**Setup pattern:**
-```typescript
-// In test module setup
-{
-  provide: 'STORAGE_CONFIG',
-  useValue: {
-    driver: 'local',
-    basePath: path.join(os.tmpdir(), 'streamtube-test-uploads'),
-  },
-}
+```dotenv
+STORAGE_INTERNAL_ENDPOINT=http://minio:9000
+STORAGE_PUBLIC_ENDPOINT=http://localhost:9000
+STORAGE_BUCKET=streamtube-media
 ```
 
-**Integration test:**
-```typescript
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+- The internal client performs server-side SDK calls against `minio`.
+- The public client only constructs presigned URLs. In normal local use, `localhost:9000` is reachable by the browser/host.
+- A Jest process inside `nestjs-api` that follows its own signed URL must temporarily set `STORAGE_PUBLIC_ENDPOINT` to `STORAGE_INTERNAL_ENDPOINT` (`http://minio:9000`) and restore the original value in teardown.
+- `minio-init` creates the bucket and disables anonymous access. Tests assume it completed successfully.
 
-describe('StorageService (integration)', () => {
-  const testDir = path.join(os.tmpdir(), 'streamtube-test-uploads');
+Phase 03 contract tests use unique object-key prefixes or UUIDs and exercise the real operations:
 
-  afterAll(() => {
-    fs.rmSync(testDir, { recursive: true, force: true });
-  });
+- create, sign, list, complete, and abort multipart uploads;
+- upload, get, and head processed objects;
+- presigned GET delivery including `Range`/`206` and download disposition;
+- typed translation of missing upload/object, invalid request, and unavailable storage errors.
 
-  it('should upload and retrieve a file', async () => {
-    const buffer = Buffer.from('test content');
-    const key = await storageService.upload(buffer, 'test.txt');
+Cleanup rules:
 
-    const retrieved = await storageService.get(key);
-    expect(retrieved.toString()).toBe('test content');
-  });
-});
+- Track every created object key and delete it with `DeleteObjectCommand` in `afterEach`/`afterAll`.
+- Track active multipart sessions and call `abortMultipartUpload`; tolerate the session already being completed or aborted.
+- Restore every environment override.
+- Never delete an entire bucket or use a broad key prefix as test cleanup.
+
+Deterministic production keys are generated by `VideoStorageKeyService`:
+
+```text
+videos/{videoId}/source/original
+videos/{videoId}/playback/video.mp4
+videos/{videoId}/thumbnails/default.jpg
 ```
 
----
+## Message Queue — Real BullMQ + Redis
 
-## Message Queue — Real (Docker)
+The selected queue is BullMQ (`@nestjs/bullmq` + `bullmq`) backed by the Compose `redis` service. The logical queue token is `video-processing`; the configured physical name comes from `VIDEO_PROCESSING_QUEUE`.
 
-**Strategy:** Real message broker in Docker. The specific technology is TBD per the architecture diagram (likely BullMQ with Redis or RabbitMQ).
+Publisher/outbox integration must prove that:
 
-**When the queue technology is chosen, configure:**
-- A queue broker service in `compose.yaml` (e.g., Redis for BullMQ, RabbitMQ for AMQP)
-- Test isolation: use dedicated test queues or clean queues between tests
-- For publisher tests: assert the job is enqueued with correct data
-- For consumer tests: submit a job and assert the processing outcome
+- the PostgreSQL outbox event exists before publication;
+- the relay publishes `video.processing.requested` with `{ version: 1, eventId, videoId }`;
+- `jobId = video-processing-{eventId}` deduplicates re-publication;
+- the event is marked published only after `queue.add()` succeeds;
+- a failed publication persists a bounded error and reschedules with bounded exponential backoff.
 
-**Setup pattern (BullMQ example):**
-```typescript
-// In test module
-BullModule.forRoot({
-  connection: {
-    host: process.env.REDIS_HOST ?? 'localhost',
-    port: Number(process.env.REDIS_PORT ?? 6379),
-  },
-}),
-BullModule.registerQueue({ name: 'video-processing' }),
-```
+Consumer integration must use a real BullMQ `Queue` and `Worker` and prove success plus terminal retry behavior. Do not mock Redis when testing delivery, job state, retry count, or queue deduplication.
 
-```typescript
-describe('VideoService (integration - queue)', () => {
-  it('should enqueue a processing job on upload', async () => {
-    await videoService.upload(videoData);
+Isolation and teardown:
 
-    const queue = module.get<Queue>(getQueueToken('video-processing'));
-    const jobs = await queue.getJobs(['waiting']);
-    expect(jobs).toHaveLength(1);
-    expect(jobs[0].data).toEqual(
-      expect.objectContaining({ videoId: expect.any(String) }),
-    );
-  });
-});
-```
+- Give integration suites a process-specific physical queue name such as `video-processing-test-${process.pid}`.
+- Call `queue.obliterate({ force: true })` before/after isolated queue suites.
+- E2E tests using the application queue call `queue.drain(true)` between cases; they must stay sequential because that queue is shared.
+- Close the worker first, then obliterate/close the queue, then close the Nest module.
+- Do not call Redis `FLUSHALL`; it can destroy unrelated queues and local data.
 
----
+## Media Processing — Real FFmpeg/FFprobe Where Compatibility Matters
 
-## Email — Mailpit (Real SMTP Capture)
+`Dockerfile.dev` installs FFmpeg and FFprobe in the same Node image used by the API and worker. The standalone `video-worker` runs them through argument arrays, never a shell command string.
 
-**Strategy:** Mailpit — a local SMTP server that captures all emails for inspection via its API. No emails are actually delivered.
+Use two layers:
 
-**Setup:**
-- Add Mailpit to `compose.yaml`:
-```yaml
-mailpit:
-  image: axllent/mailpit
-  ports:
-    - "1025:1025"   # SMTP
-    - "8025:8025"   # Web UI / API
-```
+- Unit tests inject `MEDIA_PROCESS_SPAWNER` to exercise arguments, timeout, output limits, diagnostic sanitization, process tracking, and temporary-file cleanup deterministically.
+- Integration tests invoke the real binaries, generate a short fixture, and assert a probeable H.264/yuv420p + optional AAC fast-start MP4, a JPEG thumbnail, normalized metadata, and cleaned temporary directories.
 
-**NestJS configuration:**
-```typescript
-// In mail module or config
-{
-  transport: {
-    host: process.env.SMTP_HOST ?? 'localhost',
-    port: Number(process.env.SMTP_PORT ?? 1025),
-  },
-}
-```
+The full worker integration test combines real PostgreSQL, MinIO, Redis/BullMQ, and FFmpeg/FFprobe. It must assert both the `ready` success path and retries ending in `error` only on the final attempt.
 
-**Integration test:**
-```typescript
-describe('MailService (integration)', () => {
-  beforeEach(async () => {
-    // Clear all captured emails via Mailpit API
-    await fetch('http://localhost:8025/api/v1/messages', { method: 'DELETE' });
-  });
+## Email — Real Mailpit SMTP Capture
 
-  it('should send confirmation email', async () => {
-    await mailService.sendConfirmation('user@test.com', 'token-123');
+Mailpit captures SMTP without delivering externally. Application/tests use `MAIL_HOST=mailpit`, port `1025`; the inspection helper builds `http://mailpit:8025` from inside `nestjs-api`.
 
-    // Query Mailpit API for captured emails
-    const response = await fetch('http://localhost:8025/api/v1/messages');
-    const data = await response.json();
+Use the existing helpers in `src/test/mailpit.ts`:
 
-    expect(data.messages).toHaveLength(1);
-    expect(data.messages[0].To[0].Address).toBe('user@test.com');
-    expect(data.messages[0].Subject).toContain('confirm');
-  });
-});
-```
+- `clearMailpitMessages()` in `beforeEach`;
+- `getMailpitMessages()` to list captures;
+- `getMailpitMessage(id)` to inspect rendered content.
 
-**Key points:**
-- Mailpit captures ALL emails — no mocking, no side effects
-- Use Mailpit's REST API (`http://localhost:8025/api/v1/messages`) to inspect sent emails
-- Clear captured emails in `beforeEach` to ensure test isolation
-- Web UI at `http://localhost:8025` for manual debugging
-- Tests the full SMTP transport path — if the SMTP config is wrong, the test fails
+The host UI remains available at `http://localhost:8025` for manual debugging. Always clear captured messages so auth and mail suites do not leak state into one another.

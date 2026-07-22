@@ -15,7 +15,7 @@
 | Module with configured imports (TypeORM, JWT, Bull, Throttler, etc.) | **Unit** (compilation test) | DI wiring errors are runtime-only; TypeScript cannot catch missing imports |
 | Simple module with only local providers and no configured imports | **Skip** | If the module only registers plain services/controllers, DI errors will surface in other tests |
 
-**Critical:** Module compilation tests are NOT wiring tests. They verify that the DI container can resolve all dependencies — a real runtime concern that TypeScript's type system cannot check.
+**Critical:** Module compilation tests are wiring/configuration contract tests, not business-behavior tests. They verify that the DI container and configured library modules can resolve real runtime dependencies that TypeScript cannot check.
 
 ## Setup pattern
 
@@ -43,21 +43,13 @@ import { Test } from '@nestjs/testing';
 import { UsersModule } from './users.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from './user.entity';
+import { createTestDataSource } from '../test/create-test-data-source';
 
 describe('UsersModule', () => {
   it('should compile successfully', async () => {
     const module = await Test.createTestingModule({
       imports: [
-        TypeOrmModule.forRoot({
-          type: 'postgres',
-          host: process.env.DB_HOST ?? 'localhost',
-          port: Number(process.env.DB_PORT ?? 5432),
-          username: process.env.DB_USERNAME ?? 'streamtube',
-          password: process.env.DB_PASSWORD ?? 'streamtube',
-          database: process.env.DB_DATABASE ?? 'streamtube',
-          entities: [User],
-          synchronize: true,
-        }),
+        TypeOrmModule.forRoot(createTestDataSource([User]).options),
         UsersModule,
       ],
     }).compile();
@@ -102,10 +94,10 @@ describe('VideosModule', () => {
 
 ## Examples from project
 
-Currently only `AppModule` exists (basic, no configured imports — skip).
+- **AuthModule** → real configured JWT/TypeORM providers and global guard wiring.
+- **StorageModule** → both S3 clients resolve, `OBJECT_STORAGE_PORT` maps to the S3 adapter, and only the port/key helper are exported. No network call is required merely to compile.
+- **VideoProcessingQueueModule** → real BullMQ registration with a process-specific physical queue; wait until ready and close the module/queue.
+- **VideosModule** → real TypeORM root, storage, channels, and isolated BullMQ queue; assert the exported service/port and close all handles.
+- **VideoWorkerModule** → initialize the standalone application context, assert processing providers exist and HTTP controllers do not, then close the module.
 
-When domain modules are created, each module with configured imports needs a compilation test:
-- **UsersModule** [TypeOrmModule.forFeature([User])] → compilation test
-- **AuthModule** [JwtModule.register(), PassportModule] → compilation test
-- **VideosModule** [TypeOrmModule.forFeature([Video]), BullModule.registerQueue()] → compilation test
-- **ChannelsModule** [TypeOrmModule.forFeature([Channel])] → compilation test
+Configured module tests may open PostgreSQL/Redis handles even though their suffix is `*.module.spec.ts`; this is the deliberate exception documented in `nestjs-project/AGENTS.md`.

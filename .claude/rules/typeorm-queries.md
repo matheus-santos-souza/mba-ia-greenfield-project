@@ -64,3 +64,20 @@ repo.findOne({
 ```
 
 Or use the QueryBuilder with `.addSelect('user.passwordHash')`. Never remove `select: false` from the entity to "make it easier" — that leaks the column into every default query.
+
+## State transitions require transaction-local repositories and locks
+
+When a command changes related rows (for example upload + video + processing outbox), execute every read/write through the transaction's `EntityManager`, not through an injected repository bound to the global manager. Lock the current aggregate row with `pessimistic_write` before checking its state so concurrent complete/abort/process calls cannot both win.
+
+Keep idempotency checks inside the same transaction and back them with database constraints. Phase 03 uses one unique `(video_id, event_type)` outbox event and deterministic BullMQ job IDs; an in-memory "already processed" flag is not sufficient across API replicas.
+
+## Concurrent batch claimers use `SKIP LOCKED`
+
+Background cleanup/outbox claim queries must prevent two processes from owning the same row without serializing the entire batch. Use `FOR UPDATE SKIP LOCKED`, deterministic ordering, and a configured small limit.
+
+Choose the established pattern for the operation:
+
+- **Outbox relay:** persist a claim lease (`available_at`) in a short transaction, commit, publish to Redis, then mark published/rescheduled. Never hold a database lock across Redis.
+- **Expired multipart cleanup:** `processExpiredBatch()` deliberately holds each claimed row lock while the bounded MinIO abort runs, then marks that row `aborted` before commit. This guarantees a second cleaner skips the session and is the documented exception to external I/O outside transactions; keep batches small and preserve the concurrency integration test.
+
+Never hold a transaction while running FFmpeg, transferring full media objects, sleeping between polls, or waiting indefinitely on an external system.

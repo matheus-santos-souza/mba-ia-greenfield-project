@@ -130,7 +130,7 @@ await dataSource.query(`DELETE FROM "${tableName}"`);
 
 **Rule of thumb:**
 - **E2E** (`*.e2e-spec.ts`): `imports: [AppModule]` → full app, real HTTP stack
-- **Integration** (`*.integration.spec.ts`): `imports: [TypeOrmModule.forRoot(...), TypeOrmModule.forFeature([Entity])]` + specific providers
+- **Integration** (`*.integration-spec.ts`): focused real providers plus `createTestDataSource()` and the external modules required by the contract
 - **Unit** (`*.spec.ts`): `providers: [ServiceUnderTest, { provide: Dep, useValue: mock }]` — no module imports
 
 ---
@@ -150,18 +150,17 @@ jest.mock('./users.service');
 
 ---
 
-## 9. Parallel test execution and shared database
+## 9. Parallel test execution and shared infrastructure
 
-**Problem:** Jest runs test files in parallel by default. If multiple integration test files share the same database tables, they can interfere with each other (e.g., one test cleans a table while another is mid-assertion).
+**Problem:** Integration/e2e files share PostgreSQL, the MinIO bucket, the configured application queue, and Mailpit. One suite can delete rows, objects, jobs, or messages while another is asserting them.
 
-**Fix options:**
-- Run integration tests with `--runInBand` to serialize execution
-- Use transactions that rollback after each test (if feasible)
-- Use schema-per-test-file isolation (complex but fully parallel)
+**Fix:** The project scripts run Jest with `--runInBand`. Keep process-specific queue names and unique object keys anyway, and clean only resources owned by the suite.
 
-For the `npm test` command, consider adding `--runInBand` when running integration tests:
+Use the existing scripts inside `nestjs-api`:
 ```bash
-npx jest --testPathPattern integration --runInBand
+npm test
+npm run test:integration
+npm run test:e2e
 ```
 
 ---
@@ -182,14 +181,40 @@ This matches the existing `test/app.e2e-spec.ts` pattern and ensures type compat
 
 ---
 
-## 11. Bcrypt in tests — use lower cost factor
+## 11. Argon2 in tests — use the real library
 
-**Problem:** `bcrypt.hash()` with the default cost factor (10-12) is intentionally slow. Running many tests that hash passwords slows down the suite significantly.
+The project uses `argon2`, not bcrypt. Do not add bcrypt-specific test tuning and do not mock password hashing in integration/e2e tests. Unit tests for unrelated services may mock an owned auth/user boundary rather than patching the `argon2` module.
 
-**Fix:** Use a lower cost factor in test environment:
+---
+
+## 12. Presigned MinIO URLs must be reachable by the test process
+
+**Problem:** Local `STORAGE_PUBLIC_ENDPOINT=http://localhost:9000` is correct for a browser on the host, but `localhost` inside `nestjs-api` is the API container. Fetching that URL from Jest fails.
+
+**Fix:** For suites that follow presigned URLs, set the public endpoint to the internal endpoint before compiling the config/module and restore it afterward:
+
 ```typescript
-const SALT_ROUNDS = process.env.NODE_ENV === 'test' ? 1 : 12;
-await bcrypt.hash(password, SALT_ROUNDS);
+const original = process.env.STORAGE_PUBLIC_ENDPOINT;
+process.env.STORAGE_PUBLIC_ENDPOINT =
+  process.env.STORAGE_INTERNAL_ENDPOINT ?? 'http://minio:9000';
+
+// compile and run tests
+
+restoreEnv('STORAGE_PUBLIC_ENDPOINT', original);
 ```
 
-Do NOT mock bcrypt — a lower cost factor is safe for tests and still exercises the real hashing code path.
+---
+
+## 13. BullMQ and worker handles must close in dependency order
+
+**Problem:** An open `Worker`, `Queue`, polling loop, or Nest application context keeps Jest alive and may race queue cleanup.
+
+**Fix:** Close the worker first, obliterate/close only its isolated queue, then close the Nest module and any standalone DataSource. AppModule e2e teardown uses `app.close()`, which stops the outbox/cleanup loops and closes managed connections.
+
+Never use `--forceExit` to hide a Redis/timer/child-process leak.
+
+---
+
+## 14. S3 non-final multipart parts must be at least 5 MiB
+
+MinIO/S3 rejects a completed multipart object when a non-final part is smaller than 5 MiB. Test fixtures use a 5 MiB first part plus a small final tail; do not shrink the first part to speed up the test.
